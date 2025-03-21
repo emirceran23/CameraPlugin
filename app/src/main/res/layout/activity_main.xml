@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Camera Preview (TextureView) -->
+    <TextureView
+        android:id="@+id/textureView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Overlay for Bounding Box and Landmarks -->
+    <com.example.camera2testapp.FaceOverlayView
+        android:id="@+id/overlayView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="visible" />
+
+    <!-- Warning Text for Distance and Position -->
+    <TextView
+        android:id="@+id/warningTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|top"
+        android:layout_marginTop="10dp"
+        android:padding="16dp"
+        android:text="Warnings"
+        android:textSize="18sp"
+        android:textColor="@color/red"
+        android:background="#80000000"
+        android:visibility="visible" />
+
+
+    <TextView
+        android:id="@+id/statusTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|top"
+        android:layout_marginTop="60dp"
+    android:padding="16dp"
+    android:text="Status"
+    android:textSize="18sp"
+    android:textColor="@color/blue"
+    android:background="#80000000"
+    android:visibility="visible" />
+
+    <!-- Capture Button -->
+    <Button
+        android:id="@+id/btnCapture"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Capture"
+        android:backgroundTint="@color/teal_700"
+        android:textColor="@android:color/white"
+        android:padding="10dp"
+        android:elevation="4dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp" />
+
+    <!-- Captured Image Preview -->
+    <ImageView
+        android:id="@+id/capturedImageView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scaleType="centerInside"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!-- EXIF Data Display -->
+    <TextView
+        android:id="@+id/tvExifData"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:textColor="@android:color/black"
+        android:layout_gravity="bottom"
+        android:visibility="gone" />
+
+</FrameLayout>
