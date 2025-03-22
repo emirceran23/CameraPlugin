@@ -1,3 +1,5 @@
+// Add this at the top:
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 pluginManagement {
     repositories {
         google {
@@ -21,5 +23,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Camera2TestApp"
-
-
+include(":app")

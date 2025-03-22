@@ -1,14 +1,8 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android") // Ensure Kotlin plugin is correctly added
-    id("org.jetbrains.kotlin.plugin.compose") // Add this line
-
-
-
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
-
-
-
 
 android {
     namespace = "com.example.camera2testapp"
@@ -18,15 +12,14 @@ android {
         minSdk = 30
         targetSdk = 35
 
-    }
-    buildTypes{
-        release{
-            isMinifyEnabled= false
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
+
     buildFeatures {
         viewBinding = true
-        compose = true // Enable Jetpack Compose
+        compose = true
     }
 
     compileOptions {
@@ -38,7 +31,10 @@ android {
         jvmTarget = "21"
     }
 
-    sourceSets.getByName("main").jniLibs.srcDirs("src/main/jniLibs")
+    // Corrected JNI libs location
+    sourceSets.getByName("main") {
+        jniLibs.srcDirs("src/main/jniLibs")
+    }
 
 
 
@@ -53,26 +49,26 @@ android {
     }
 }
 
-
-
 dependencies {
-    implementation ("androidx.databinding:viewbinding:4.1.3")
+    implementation("androidx.databinding:viewbinding:4.1.3")
     implementation("com.google.mediapipe:tasks-vision:0.10.20")
     implementation("com.google.mediapipe:tasks-core:0.10.20")
-    // Jetpack Compose Core
+
+    // Jetpack Compose
     implementation("androidx.compose.ui:ui:1.5.0")
     implementation("androidx.compose.ui:ui-tooling-preview:1.5.0")
     implementation("androidx.compose.material3:material3:1.2.0")
-
-    implementation project(":opencv")
-    // Required Compose Compiler for Kotlin 2.0+
     implementation("androidx.compose.compiler:compiler:1.5.0")
+    implementation("androidx.compose.foundation:foundation:1.5.0")
+    implementation("androidx.compose.material:material:1.5.0")
+    implementation("androidx.compose.runtime:runtime:1.5.0")
 
     // AndroidX Core Libraries
-    implementation ("androidx.appcompat:appcompat:1.6.1")
-    implementation ("com.google.android.material:material:1.10.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.10.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.core:core-ktx:1.12.0")
 
     // CameraX Dependencies
     implementation("androidx.camera:camera-camera2:1.3.0")
@@ -81,15 +77,10 @@ dependencies {
 
     // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
+    implementation ("com.google.mlkit:pose-detection:18.0.0-beta5")
 
 
-    // Kotlin Core Libraries
-    implementation("androidx.core:core-ktx:1.12.0")
-
-    // Jetpack Compose Material & Foundation
-    implementation("androidx.compose.foundation:foundation:1.5.0")
-    implementation("androidx.compose.material:material:1.5.0")
-    implementation("androidx.compose.runtime:runtime:1.5.0")
+    // Testing
     implementation(libs.androidx.junit.ktx)
     implementation(libs.androidx.monitor)
     androidTestImplementation(libs.junit.junit)
