@@ -23,11 +23,7 @@ class FaceOverlayView(context: Context, attrs: AttributeSet?) : View(context, at
         strokeWidth = 8f
     }
 
-    private val centerBoxPaint = Paint().apply {
-        color = Color.YELLOW
-        style = Paint.Style.STROKE
-        strokeWidth = 4f
-    }
+
 
     private var faceBoundingBox: RectF? = null
     private var faceLandmarks: List<Pair<Float, Float>> = emptyList()
@@ -55,13 +51,6 @@ class FaceOverlayView(context: Context, attrs: AttributeSet?) : View(context, at
 
         // Draw the "ideal face position" box
         val boxMargin = width * 0.15f // 15% margin
-        val centerRect = RectF(
-            width / 2f - boxMargin,
-            height / 2f - boxMargin,
-            width / 2f + boxMargin,
-            height / 2f + boxMargin
-        )
-        canvas.drawRect(centerRect, centerBoxPaint)
 
         // Draw bounding box
         faceBoundingBox?.let {

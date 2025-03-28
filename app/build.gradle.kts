@@ -77,7 +77,12 @@ dependencies {
 
     // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
-    implementation ("com.google.mlkit:pose-detection:18.0.0-beta5")
+    implementation ("com.quickbirdstudios:opencv:4.5.3.0")
+    implementation ("org.tensorflow:tensorflow-lite:2.9.0")
+    implementation ("org.tensorflow:tensorflow-lite-support:0.3.1") // Optional, for easier input processing
+    implementation ("org.tensorflow:tensorflow-lite-task-vision:0.4.4") // For MoveNet
+
+
 
 
     // Testing
