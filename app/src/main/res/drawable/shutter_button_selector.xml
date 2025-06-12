@@ -1,0 +1,20 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Pressed state: hafifçe içe dolan beyaz dolgu -->
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <size android:width="72dp" android:height="72dp"/>
+            <solid android:color="#000000"/>
+        </shape>
+    </item>
+
+    <!-- Default state: beyaz çerçeve, şeffaf dolgu -->
+    <item>
+        <shape android:shape="oval">
+            <size android:width="72dp" android:height="72dp"/>
+            <solid android:color="@android:color/transparent"/>
+            <stroke
+                android:width="4dp"
+                android:color="@color/black"/>
+        </shape>
+    </item>
+</selector>

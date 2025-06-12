@@ -3,150 +3,197 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
 
-    <!-- Camera Preview (3:4 aspect ratio) -->
-    <TextureView
-        android:id="@+id/textureView"
+    <FrameLayout
+        android:id="@+id/previewContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintDimensionRatio="9:16"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintDimensionRatio="3:4">
+
+        <TextureView
+            android:id="@+id/textureView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <com.example.camera2testapp.CameraGridView
+            android:id="@+id/gridView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
+
+
+    <!-- Gradient top scrim -->
+    <View
+        android:id="@+id/topScrim"
+        android:layout_width="0dp"
+        android:layout_height="90dp"
+        android:background="@drawable/scrim_top_gradient"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Grid Overlay -->
-    <com.example.camera2testapp.CameraGridView
-        android:id="@+id/gridView"
+    <!-- Top info chip‑bar inside a transparent card -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/topBar"
         android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintDimensionRatio="9:16"
-        app:layout_constraintBottom_toBottomOf="@id/textureView"
-        app:layout_constraintEnd_toEndOf="@id/textureView"
-        app:layout_constraintStart_toStartOf="@id/textureView"
-        app:layout_constraintTop_toTopOf="@id/textureView" />
-
-    <!-- Top Bar with Settings/Info -->
-    <LinearLayout
-        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:background="#80000000"
-        android:padding="12dp"
+        android:layout_margin="16dp"
+        android:backgroundTint="@color/overlay_card"
+        app:cardElevation="0dp"
+        app:cardUseCompatPadding="false"
+        app:shapeAppearanceOverlay="@style/Shape.Corner.Large"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+
         <TextView
-            android:id="@+id/headPoseTextView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pitch: 0°\nYaw: 0°\nRoll: 0°"
-            android:textColor="@android:color/white"
-            android:textSize="14sp" />
-
-        <Space
-            android:layout_width="0dp"
+            android:id="@+id/mlkitPoseTextView"
+            style="@style/Text.BodyMedium"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_weight="1" />
+            android:padding="12dp"
+            android:text="ML Kit Head Pose"
+            android:textColor="@color/on_overlay" />
+    </com.google.android.material.card.MaterialCardView>
 
-
-    </LinearLayout>
-
-    <!-- Bottom Controls -->
-    <LinearLayout
-        android:layout_width="match_parent"
+    <!-- Error toast (same as before, just moved above preview) -->
+    <TextView
+        android:id="@+id/captureErrorTextView"
+        style="@style/Text.BodyMedium"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="#80000000"
-        android:padding="16dp"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_toast_error"
+        android:padding="6dp"
+        android:text="❌ Hata mesajı"
+        android:textColor="@color/error"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/topBar"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Bottom frosted panel -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/bottomPanel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="96dp"
+        android:backgroundTint="@color/overlay_card"
+        app:cardElevation="0dp"
+        app:shapeAppearanceOverlay="@style/Shape.Corner.Large"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Face Alignment Feedback -->
-        <TextView
-            android:id="@+id/centerTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textAlignment="center"
-            android:text="Center your face"
-            android:textColor="@android:color/white"
-            android:textSize="16sp"
-            android:layout_marginBottom="8dp"/>
-
-        <!-- Distance and Orientation Info -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center">
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <TextView
-                android:id="@+id/distanceTextView"
+            <!-- Distance & orientation -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Distance: -- cm"
-                android:textColor="@android:color/white"
-                android:textSize="14sp"/>
+                android:gravity="center"
+                android:orientation="horizontal">
 
-            <View
-                android:layout_width="1dp"
-                android:layout_height="16dp"
-                android:layout_marginHorizontal="12dp"
-                android:background="@android:color/white"/>
+                <TextView
+                    android:id="@+id/distanceTextView"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Distance — -- cm"
+                    android:textColor="@color/on_overlay" />
 
-            <TextView
-                android:id="@+id/orientationTextView"
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="16dp"
+                    android:layout_marginHorizontal="12dp"
+                    android:background="@color/on_overlay" />
+
+                <TextView
+                    android:id="@+id/orientationTextView"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Oryantasyon — ‑"
+                    android:textColor="@color/on_overlay" />
+            </LinearLayout>
+
+            <!-- Threshold chips -->
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipThresholdGroup"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Orientation: Good"
-                android:textColor="@android:color/white"
-                android:textSize="14sp"/>
+                android:layout_marginTop="12dp"
+                app:chipSpacingHorizontal="8dp"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipThreshold0"
+                    style="@style/Widget.CameraChoiceChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0°"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipThreshold3"
+                    style="@style/Widget.CameraChoiceChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="3°"/>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipThreshold5"
+                    style="@style/Widget.CameraChoiceChip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="5°"/>
+            </com.google.android.material.chip.ChipGroup>
+
+            <!-- Distance switch -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchDistanceCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:text="Mesafe kontrolü aktif"
+                app:ensureMinTouchTargetSize="true"
+                app:layout_constraintTop_toBottomOf="@id/chipThresholdGroup"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"/>
+
         </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
-        <!-- Capture Button with Material style -->
-        <Button
-            android:id="@+id/btnCapture"
-            android:layout_width="120dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="@color/teal_700"
-            android:text="CAPTURE"
-            android:textAllCaps="false"
-            android:textColor="@android:color/white"
-            android:textSize="16sp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            app:strokeColor="@android:color/white"
-            app:strokeWidth="2dp"/>
-    </LinearLayout>
-
-    <!-- Captured Image Preview -->
-    <ImageView
-        android:id="@+id/capturedImageView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:scaleType="centerCrop"
-        android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="@id/textureView"
-        app:layout_constraintEnd_toEndOf="@id/textureView"
-        app:layout_constraintStart_toStartOf="@id/textureView"
-        app:layout_constraintTop_toTopOf="@id/textureView"/>
-
-    <!-- EXIF Data -->
-    <TextView
-        android:id="@+id/tvExifData"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        android:padding="8dp"
-        android:textColor="@android:color/black"
-        android:background="#CCFFFFFF"
-        android:visibility="gone"
+    <!-- SHUTTER BUTTON (modern FAB) -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/btnCapture"
+        android:layout_width="@dimen/fab_size"
+        android:layout_height="@dimen/fab_size"
+        android:layout_marginBottom="32dp"
+        android:contentDescription="@string/capture_photo"
+        android:src="@drawable/ic_shutter_icon"
+        app:backgroundTint="@color/white"
+        app:fabCustomSize="@dimen/fab_size"
+        app:maxImageSize="48dp"
+        app:rippleColor="@color/fab_ripple"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:ignore="VectorDrawableCompat"/>
+
 </androidx.constraintlayout.widget.ConstraintLayout>

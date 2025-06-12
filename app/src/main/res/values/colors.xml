@@ -9,4 +9,9 @@
     <color name="white">#FFFFFFFF</color>
     <color name="blue">#0000FF</color>
     <color name="red">#FF0000</color>
+    <color name="overlay_card">#66FFFFFF</color>   <!-- 40 % white for frosted glass -->
+    <color name="on_overlay">#FFFFFFFF</color>
+    <color name="fab_ripple">#33FFFFFF</color>
+    <color name="error">#FF4B4B</color>
+    <color name="primary_light">#FFFFFFFF</color>
 </resources>

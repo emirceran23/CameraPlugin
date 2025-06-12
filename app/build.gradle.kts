@@ -53,6 +53,8 @@ dependencies {
     implementation("androidx.databinding:viewbinding:4.1.3")
     implementation("com.google.mediapipe:tasks-vision:0.10.20")
     implementation("com.google.mediapipe:tasks-core:0.10.20")
+    implementation ("com.google.mlkit:face-detection:16.1.7")
+    //implementation ("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
 
     // Jetpack Compose
     implementation("androidx.compose.ui:ui:1.5.0")
@@ -77,10 +79,8 @@ dependencies {
 
     // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
-    implementation ("com.quickbirdstudios:opencv:4.5.3.0")
-    implementation ("org.tensorflow:tensorflow-lite:2.9.0")
-    implementation ("org.tensorflow:tensorflow-lite-support:0.3.1") // Optional, for easier input processing
-    implementation ("org.tensorflow:tensorflow-lite-task-vision:0.4.4") // For MoveNet
+    //implementation ("com.quickbirdstudios:opencv:4.5.3.0")
+
 
 
 
@@ -90,3 +90,23 @@ dependencies {
     implementation(libs.androidx.monitor)
     androidTestImplementation(libs.junit.junit)
 }
+afterEvaluate {
+    tasks.named("assembleDebug").configure {
+        doLast {
+            val aarFile = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\Camera2TestApp\\app\\build\\outputs\\aar\\app-debug.aar")
+            val targetDir = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\testApp\\app\\libs")
+
+            if (aarFile.exists()) {
+                copy {
+                    from(aarFile)
+                    into(targetDir)
+                }
+                println("✅ AAR copied to target project at: $targetDir")
+            } else {
+                println("⚠️ AAR file not found: $aarFile")
+            }
+        }
+    }
+}
+
+

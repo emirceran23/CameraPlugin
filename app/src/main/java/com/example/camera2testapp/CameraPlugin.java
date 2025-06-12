@@ -1,52 +1,65 @@
 package com.example.camera2testapp;
 
-import static android.content.ContentValues.TAG;
-
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.util.Base64;
 import android.util.Log;
 
+import androidx.exifinterface.media.ExifInterface;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+
 public class CameraPlugin {
+
+    private static final String TAG = "CameraPlugin";
     private static Activity unityActivity;
+    private static CameraCallback callback;
 
-    // Initialize with Unity activity
-    public static void Init(Activity activity) {
+    public static void initialize(Activity activity, CameraCallback cb) {
         unityActivity = activity;
+        callback = cb;
+        Log.d(TAG, "CameraPlugin initialized with callback");
     }
 
-    // Start the Camera activity
-    public static void StartCamera() {
-        if (unityActivity != null) {
-            Intent intent = new Intent(unityActivity, MainActivity.class);
-            unityActivity.startActivity(intent);
-        } else {
-            Log.e("CameraPlugin", "Unity Activity is null!");
+    public static void startCameraActivity() {
+        if (unityActivity == null || callback == null) {
+            Log.e(TAG, "CameraPlugin not initialized correctly");
+            return;
         }
+        Intent intent = new Intent(unityActivity, MainActivity.class);
+        unityActivity.startActivity(intent);
     }
 
-    // Stop the Camera activity
-    public static void StopCamera() {
-        if (unityActivity != null) {
-            unityActivity.runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    unityActivity.finish();  // Finish the camera activity
-                }
-            });
-        } else {
-            Log.e("CameraPlugin", "Unity Activity is null!");
-        }
-    }
-    public void autoCapturePhoto() {
-        if (unityActivity != null) {
-            Intent intent = new Intent(unityActivity, MainActivity.class);
-            intent.putExtra("AUTO_CAPTURE", true);
-            unityActivity.startActivity(intent);
-        } else {
-            Log.e("CameraPlugin", "Unity Activity is null!");
+    public static void sendResultToUnity(Bitmap bitmap) {
+        if (callback == null) {
+            Log.e(TAG, "Callback is null");
+            return;
         }
 
+        try {
+            ByteArrayOutputStream stream = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
+            byte[] imageBytes = stream.toByteArray();
+            String base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
 
+            int orientation = 0;
+            try {
+                ExifInterface exif = new ExifInterface(new ByteArrayInputStream(imageBytes));
+                orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to read EXIF: " + e.getMessage());
+            }
+
+            // Format: "orientation::base64data"
+            String payload = orientation + "::" + base64Image;
+            callback.onPhotoCaptured(payload);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to send image: " + e.getMessage());
+        }
     }
 
 }

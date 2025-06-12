@@ -1,0 +1,28 @@
+<resources>
+    <!-- 1) App theme must be MaterialComponents (v3) -->
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- … your other theme customizations … -->
+        <item name="materialCardViewStyle">@style/Widget.FrostedCard</item>
+    </style>
+
+    <!-- 2) Re‑expose M3 body text so you can use Text.BodyMedium -->
+    <style name="Text.BodyMedium" parent="TextAppearance.Material3.BodyMedium"/>
+
+    <!-- 3) Frosted‑glass card -->
+    <style name="Widget.FrostedCard" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/overlay_card</item>
+        <item name="shapeAppearance">@style/Shape.Corner.Large</item>
+        <item name="cardElevation">0dp</item>
+    </style>
+
+    <!-- 4) Rounded corner helper -->
+    <style name="Shape.Corner.Large" parent="">
+        <item name="cornerSize">24dp</item>
+    </style>
+
+    <!-- 5) A small choice‑chip style (so we can refer to Widget.CameraChoiceChip) -->
+    <style name="Widget.CameraChoiceChip" parent="Widget.MaterialComponents.Chip.Choice">
+        <item name="chipMinHeight">32dp</item>
+        <item name="chipCornerRadius">16dp</item>
+    </style>
+</resources>

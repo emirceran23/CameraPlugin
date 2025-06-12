@@ -52,21 +52,24 @@ class CameraGridView @JvmOverloads constructor(
     private fun drawSquareGrid(canvas: Canvas) {
         val width = width.toFloat()
         val height = height.toFloat()
-        val size = minOf(width, height)
-        val cellSize = size / 4
+        val cols = 4
+        val rows = 4
+        val cellWidth = width / cols
+        val cellHeight = height / rows
 
         // Vertical lines
-        for (i in 1..3) {
-            val x = i * cellSize
+        for (i in 1 until cols) {
+            val x = i * cellWidth
             canvas.drawLine(x, 0f, x, height, paint)
         }
 
         // Horizontal lines
-        for (i in 1..3) {
-            val y = i * cellSize
+        for (i in 1 until rows) {
+            val y = i * cellHeight
             canvas.drawLine(0f, y, width, y, paint)
         }
     }
+
 
     private fun drawDiagonalGrid(canvas: Canvas) {
         val width = width.toFloat()
