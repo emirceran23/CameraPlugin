@@ -79,7 +79,7 @@ dependencies {
 
     // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
-    //implementation ("com.quickbirdstudios:opencv:4.5.3.0")
+    implementation ("com.quickbirdstudios:opencv:4.5.3.0")
 
 
 
@@ -90,16 +90,19 @@ dependencies {
     implementation(libs.androidx.monitor)
     androidTestImplementation(libs.junit.junit)
 }
+
+
 afterEvaluate {
     tasks.named("assembleDebug").configure {
         doLast {
             val aarFile = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\Camera2TestApp\\app\\build\\outputs\\aar\\app-debug.aar")
-            val targetDir = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\testApp\\app\\libs")
+            val targetDir = file("C:\\Users\\ITEMS\\Desktop\\eye-rehab-master\\Assets\\Plugins\\Android")
 
             if (aarFile.exists()) {
                 copy {
                     from(aarFile)
                     into(targetDir)
+                    rename { "Camera2Plugin.aar" }
                 }
                 println("✅ AAR copied to target project at: $targetDir")
             } else {

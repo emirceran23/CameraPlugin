@@ -148,9 +148,18 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Check if we should finish the activity
+        if (intent.getBooleanExtra("finish", false)) {
+            finish()
+            return
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater) // Initialize FIRST
         setContentView(binding.root)
         gridView = binding.gridView
+
+        // Initialize distance check switch state
+        binding.switchDistanceCheck.isChecked = isDistanceCheckEnabled
 
         // Request Camera Permission if not granted
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -232,7 +241,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * TextureView’in dönüşüm matrisini, cihazın mevcut yönüne göre günceller.
+     * TextureView'in dönüşüm matrisini, cihazın mevcut yönüne göre günceller.
      */
     private fun applyPreviewAspectRatio() {
         val params = binding.previewContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
@@ -260,7 +269,7 @@ class MainActivity : AppCompatActivity() {
         val centerX   = viewRect.centerX()
         val centerY   = viewRect.centerY()
 
-        // 1) “Center‑crop” so the buffer cleanly fills the view:
+        // 1) "Center-crop" so the buffer cleanly fills the view:
         if(rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
             bufRect.offset(centerX-bufRect.centerX(), centerY-bufRect.centerY())
             matrix.setRectToRect(viewRect, bufRect, Matrix.ScaleToFit.FILL)
@@ -375,6 +384,8 @@ class MainActivity : AppCompatActivity() {
         val options = FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
             .enableTracking()
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .setMinFaceSize(0.15f)  // Minimum yüz boyutu (0.0-1.0 arası)
             .build()
         val detector = FaceDetection.getClient(options)
 
@@ -389,30 +400,42 @@ class MainActivity : AppCompatActivity() {
                     lastYaw = mlkitYaw
                     lastRoll = mlkitRoll
                     Log.d("MLKit", "Pitch: $mlkitPitch, Yaw: $mlkitYaw, Roll: $mlkitRoll")
-
+                    
                     runOnUiThread {
                         binding.mlkitPoseTextView.text =
                             "Pitch: ${mlkitPitch.toInt()}°\n" +
                                     "Yaw: ${mlkitYaw.toInt()}°\n" +
                                     "Roll: ${mlkitRoll.toInt()}°"
                     }
-
+                } else {
+                    // Yüz algılanamadığında değerleri sıfırla
+                    lastPitch = null
+                    lastYaw = null
+                    lastRoll = null
+                    runOnUiThread {
+                        binding.mlkitPoseTextView.text = "Yüz algılanamadı"
+                    }
+                }
+                isProcessing = false
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "ML Kit yüz algılama hatası: ${e.message}")
+                lastPitch = null
+                lastYaw = null
+                lastRoll = null
+                runOnUiThread {
+                    binding.mlkitPoseTextView.text = "Yüz algılama hatası"
                 }
                 isProcessing = false
             }
             .addOnCompleteListener {
                 isProcessing = false  // işlem tamamlandığında işaretçi sıfırlanır
             }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "ML Kit yüz algılama hatası: ${e.message}")
-                isProcessing = false
-            }
-
 
         // Cihazın mevcut ekran dönüşünü alıyoruz:
         val rotation = windowManager.defaultDisplay.rotation
 
-        // Bitmap’i oryantasyon bilgisine göre dönüştürüyoruz:
+        // Bitmap'i oryantasyon bilgisine göre dönüştürüyoruz:
         val bitmap = applyOrientationTransform(rawBitmap, rotationComp)
 
         // Hatalardan kaçınmak için modelin doğru initialize edildiğinden emin olun:
@@ -427,7 +450,6 @@ class MainActivity : AppCompatActivity() {
         val result = faceLandmarker.detect(mpImage)
         val faceLandmarksList = result.faceLandmarks()
 
-
         if (faceLandmarksList.isNotEmpty()) {
             val landmarks = faceLandmarksList[0]
 
@@ -436,8 +458,6 @@ class MainActivity : AppCompatActivity() {
             finalDistanceValue=distanceValue
             // 2. Face alignment
 
-
-// Then use stabilizedLandmarks for head pose calculation
             // ⬇ Göz koordinatına focus at
             val leftEye = landmarks.getOrNull(468)
             val rightEye = landmarks.getOrNull(473)
@@ -450,29 +470,28 @@ class MainActivity : AppCompatActivity() {
                 val yCenter = ((leftY + rightY) / 2).toInt()
                 lastEyeFocusX=xCenter
                 lastEyeFocusY=yCenter
-               // setFocusOnEyesOrFace(xCenter, yCenter, 300)
             }
 
-
             var orientationMessage = ""
-
-
-
 
             // Orientation check with unified yaw
             // Generate orientation correction messages
             val warnings = mutableListOf<String>()
-            if(lastPitch==null|| lastYaw==null|| lastRoll==null)
+            if(lastPitch==null|| lastYaw==null|| lastRoll==null) {
+                runOnUiThread {
+                    binding.orientationTextView.text = "Yüz pozisyonu hesaplanıyor..."
+                }
                 return
+            }
             // Pitch
             if      (lastPitch!! >  headPoseThreshold)  warnings.add("⬇ Başınızı biraz aşağı eğin.")
             else if (lastPitch!! < -headPoseThreshold) warnings.add("⬆ Başınızı biraz yukarı kaldırın.")
 
-// Yaw
+            // Yaw
             if      (lastYaw!!   >  headPoseThreshold)  warnings.add("➡ Başınızı biraz sağa çevirin.")
             else if (lastYaw!!   < -headPoseThreshold)  warnings.add("⬅ Başınızı biraz sola çevirin.")
 
-// Roll
+            // Roll
             if      (lastRoll!!  >  headPoseThreshold)  warnings.add("↺ Başınızı saat yönünün tersine döndürün.")
             else if (lastRoll!!  < -headPoseThreshold)  warnings.add("↻ Başınızı saat yönünde döndürün.")
 
@@ -480,17 +499,9 @@ class MainActivity : AppCompatActivity() {
                 warnings.add("📏 Kamera ile hasta arası mesafeyi 30-35 cm arasına getirin.")
             }
 
-
-
-
-
-
             // ✅ Display warning messages or success message
             if (warnings.isEmpty()) {
-
                 orientationMessage = "✅ Baş pozisyonu uygun"
-
-
 
                 if (!isCapturing) {  // ✅ Prevent multiple captures
                     isCapturing = true
@@ -501,32 +512,44 @@ class MainActivity : AppCompatActivity() {
                     val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                     vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
                     // Hemen fotoğraf çek
-
                     capturePhoto()  // ✅ Trigger vibration, then capture
-
-
-
                 }
             } else {
                 orientationMessage = warnings.joinToString("\n")
             }
 
-
             runOnUiThread {
                 binding.orientationTextView.text = orientationMessage
             }
-
 
             // Update distance & center UI
             runOnUiThread {
                 binding.distanceTextView.text = distanceMessage
             }
-
-            // Auto-capture conditions
-
-
-
-
+        } else {
+            // Yüz algılanamadığında UI'ı güncelle
+            runOnUiThread {
+                binding.orientationTextView.text = "Yüz algılanamadı"
+                binding.distanceTextView.text = "Mesafe ölçülemiyor"
+            }
+        }
+        
+        
+        val distance = finalDistanceValue ?: return
+        val headPoseDict = HashMap<String, Float>()
+        val isDistanceCheckEnabledFloat = if (isDistanceCheckEnabled) 1f else 0f
+        if (lastPitch == null || lastYaw == null || lastRoll == null) return
+        headPoseDict["pitch"] = lastPitch!!
+        headPoseDict["yaw"] = lastYaw!!
+        headPoseDict["roll"] = lastRoll!!
+        headPoseDict["distance"] = distance
+        headPoseDict["isDistanceCheckEnabled"] = isDistanceCheckEnabledFloat
+        try {
+            CameraPlugin.sendHeadPoseToUnity(headPoseDict)
+            Log.d("MLKit", "Head Pose Sent to Unity")
+        } catch (e: Exception) {
+            Log.e("MLKit", "Error sending head pose to Unity: ${e.message}")
+            Log.e("MLKit", "Pitch: $lastPitch, Yaw: $lastYaw, Roll: $lastRoll")
         }
     }
     private fun saveDebugBitmap(bitmap: Bitmap) {
@@ -578,28 +601,54 @@ class MainActivity : AppCompatActivity() {
     }
     private fun runPrecaptureSequence() {
         try {
-            // AE_PRECAPTURE tetikleyicisini başlatın
-            previewRequestBuilder?.set(
-                CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
-                CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
-            )
-            mState = STATE_WAITING_PRECAPTURE
-            cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+            // Xiaomi cihazlar ında bazı modeller pre-flash kullanmaz.
+            // Bu nedenle kısa süreli bir "torch" aydınlatması ekleyerek
+            // sensörün doğru pozlanmasını sağlıyoruz.
+            if (isXiaomiDevice()) {
+                // 1) Torch modunu aç
+                previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
+                cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder!!.build(), null, backgroundHandler)
+
+                // 2) Sensörün ortama uyum sağlaması için kısa bir bekleme ardından
+                //    standart AE precapture tetikleyicisini gönder
+                handler.postDelayed({
+                    previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                    mState = STATE_WAITING_PRECAPTURE
+                    cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+                }, 1200) // Bekleme süresi ihtiyaca göre artırılabilir
+            } else {
+                // AE_PRECAPTURE tetikleyicisini başlatın (standart yol)
+                previewRequestBuilder?.set(
+                    CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                    CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
+                )
+                mState = STATE_WAITING_PRECAPTURE
+                cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+            }
         } catch (e: CameraAccessException) {
             Log.e(TAG, "runPrecaptureSequence error: ${e.message}")
         }
     }
 
+    // Xiaomi gibi cihazları tespit etmek için yardımcı fonksiyon
+    private fun isXiaomiDevice(): Boolean {
+        Log.d("XiaomiCheck", "Manufacturer: ${Build.MANUFACTURER}")
+        return Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
+    }
 
     private fun estimateDistanceUsingIris(
         landmarks: List<NormalizedLandmark>,
         bitmap: Bitmap
     ): Pair<Float, String> {
-        if (calibrationFocalLength == null || SENSOR_WIDTH_MM == null) {
-            return Pair(
-                0f,
-                "⚠️ Kalibrasyon gerekli! Odak uzaklığı veya sensör genişliği bilinmiyor."
-            )
+        // Ensure calibration and sensor data are available
+        if (calibrationFocalLength == null) {
+            return Pair(0f, "⚠️ Önce kalibrasyon yapılmalı!")
+        }
+
+        val sensorWidthMm = SENSOR_WIDTH_MM
+        if (sensorWidthMm <= 0f) {
+            return Pair(0f, "⚠️ Sensör genişliği tespit edilemedi!")
         }
 
         val leftIrisLandmarks = listOf(468, 469, 470, 471, 472)
@@ -608,8 +657,15 @@ class MainActivity : AppCompatActivity() {
         val leftIrisDiameterPixels = calculateIrisDiameter(leftIrisLandmarks, landmarks, bitmap)
         val rightIrisDiameterPixels = calculateIrisDiameter(rightIrisLandmarks, landmarks, bitmap)
 
-        val averageIrisDiameterPixels = (leftIrisDiameterPixels + rightIrisDiameterPixels) / 2
-        val focalLengthPx = calibrationFocalLength!! * bitmap.width / SENSOR_WIDTH_MM!!
+        val averageIrisDiameterPixels = (leftIrisDiameterPixels + rightIrisDiameterPixels) / 2f
+
+        // Guard against division by zero or invalid measurements
+        if (averageIrisDiameterPixels <= 0f) {
+            return Pair(0f, "⚠️ İris çapı ölçülemedi")
+        }
+
+        // Convert focal length from mm to pixels for the current image width
+        val focalLengthPx = calibrationFocalLength!! * bitmap.width / sensorWidthMm
         val distanceToCameraMm = (REAL_IRIS_DIAMETER_MM * focalLengthPx) / averageIrisDiameterPixels
         var distanceToCameraCm = distanceToCameraMm / 10
 
@@ -705,18 +761,18 @@ class MainActivity : AppCompatActivity() {
                 if (facing == CameraCharacteristics.LENS_FACING_BACK) {
                     backCameraId = cameraId
                     Log.d(TAG, "Selected back camera ID: $backCameraId") // <-- Added log line
-                    // In openCamera(), instead of “largest = ... maxByOrNull { it.width * it.height }”:
+                    // In openCamera(), instead of "largest = ... maxByOrNull { it.width * it.height }":
                     // inside openCamera(), after you get cameraCharacteristics:
                     val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
 
 // 1) get the raw SurfaceTexture sizes
                     val choices = map.getOutputSizes(SurfaceTexture::class.java)
 
-// 2) decide your container’s current pixel dims:
+// 2) decide your container's current pixel dims:
 
                     val portraitChoices = choices.filter { it.height > it.width }
 
-// 3) pick the smallest “big enough” size
+// 3) pick the smallest "big enough" size
                     previewSize = portraitChoices
                         .maxByOrNull { it.width * it.height }
                         ?: choices[0]
@@ -748,9 +804,13 @@ class MainActivity : AppCompatActivity() {
                     cameraDevice = camera
                     startCameraPreview()
 
-                    // Grab sensor width
-                    //SENSOR_WIDTH_MM = getSensorWidthMm() ?: 6.3f
-                    Log.d(TAG, "Sensor width: $SENSOR_WIDTH_MM mm")
+                    // Grab sensor physical width (mm) once the back camera is chosen.
+                    // This value is vital for distance estimation. Fallback to the
+                    // previously hard-coded value if the query fails.
+                    getSensorWidthMm()?.let {
+                        SENSOR_WIDTH_MM = it
+                    }
+                    Log.d(TAG, "Sensor width (mm): $SENSOR_WIDTH_MM")
 
                     // Attempt calibration capture once
                     if (!isCalibrated) {
@@ -1205,12 +1265,34 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        startBackgroundThread()
-        if (binding.textureView.isAvailable) {
-            openCamera() // now openCamera() uses backgroundHandler
-            configureTransform(binding.textureView.width,binding.textureView.height)
-        } else {
-            setupTextureView()
+        try {
+            // Start background thread first
+            startBackgroundThread()
+            
+            // Reset state
+            mState = STATE_PREVIEW
+            isCapturing = false
+            isProcessing = false
+            
+            // Check camera permission
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.CAMERA),
+                    CAMERA_PERMISSION_CODE
+                )
+            } else {
+                // Initialize camera if texture view is available
+                if (binding.textureView.isAvailable) {
+                    openCamera()
+                    configureTransform(binding.textureView.width, binding.textureView.height)
+                } else {
+                    setupTextureView()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onResume: ${e.message}")
         }
     }
     private fun startBackgroundThread() {
@@ -1237,9 +1319,29 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        cameraDevice?.close()
-        cameraDevice = null
-        stopBackgroundThread()
+        try {
+            // Stop the background thread
+            stopBackgroundThread()
+            
+            // Close the camera session
+            cameraCaptureSession?.close()
+            cameraCaptureSession = null
+            
+            // Close the camera device
+            cameraDevice?.close()
+            cameraDevice = null
+            
+            // Close the image reader
+            imageReader?.close()
+            imageReader = null
+            
+            // Reset state
+            mState = STATE_PREVIEW
+            isCapturing = false
+            isProcessing = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onPause: ${e.message}")
+        }
     }
     private fun stopBackgroundThread() {
         backgroundThread?.quitSafely()

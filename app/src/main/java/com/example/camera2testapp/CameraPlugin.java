@@ -11,12 +11,13 @@ import androidx.exifinterface.media.ExifInterface;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
 
 public class CameraPlugin {
 
     private static final String TAG = "CameraPlugin";
     private static Activity unityActivity;
-    private static CameraCallback callback;
+    public static CameraCallback callback;
 
     public static void initialize(Activity activity, CameraCallback cb) {
         unityActivity = activity;
@@ -33,6 +34,23 @@ public class CameraPlugin {
         unityActivity.startActivity(intent);
     }
 
+    public static void startCalibrationActivity() {
+        if (unityActivity == null || callback == null) {
+            Log.e(TAG, "CameraPlugin not initialized correctly");
+            return;
+        }
+        Intent intent = new Intent(unityActivity, CalibrationActivity.class);
+        unityActivity.startActivity(intent);
+    }
+
+    public static void finishCameraActivity() {
+        if (unityActivity != null) {
+            Intent intent = new Intent(unityActivity, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            intent.putExtra("finish", true);
+            unityActivity.startActivity(intent);
+        }
+    }
     public static void sendResultToUnity(Bitmap bitmap) {
         if (callback == null) {
             Log.e(TAG, "Callback is null");
@@ -60,6 +78,13 @@ public class CameraPlugin {
         } catch (Exception e) {
             Log.e(TAG, "Failed to send image: " + e.getMessage());
         }
+    }
+    public static void sendHeadPoseToUnity(HashMap<String,Float> headPoseDict) {
+        if (callback == null) {
+            Log.e(TAG, "Callback is null");
+            return;
+        }
+        callback.OnHeadPoseReceived(headPoseDict)  ;
     }
 
 }
