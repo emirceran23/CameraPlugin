@@ -4,6 +4,6 @@ import java.util.HashMap;
 
 public interface CameraCallback {
     void onPhotoCaptured(String base64Image);
-    void onCalibrationFinished(boolean isCalibrated);
-    void OnHeadPoseReceived(HashMap<String,Float> headPoseDict);
+    void OnCalibrationFinished(boolean isCalibrated);
+    void OnHeadPoseReceived(HashMap<String, Float> headPoseDict);
 }

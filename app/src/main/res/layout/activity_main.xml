@@ -65,6 +65,16 @@
             android:textColor="@color/on_overlay" />
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- Head Pose Arrow Panel -->
+    <com.example.camera2testapp.HeadPoseArrowView
+        android:id="@+id/headPoseArrowView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:visibility="visible"
+        app:layout_constraintTop_toTopOf="@id/previewContainer"
+        app:layout_constraintEnd_toEndOf="@id/previewContainer"/>
+
     <!-- Error toast (same as before, just moved above preview) -->
     <TextView
         android:id="@+id/captureErrorTextView"

@@ -79,12 +79,12 @@ public class CameraPlugin {
             Log.e(TAG, "Failed to send image: " + e.getMessage());
         }
     }
-    public static void sendHeadPoseToUnity(HashMap<String,Float> headPoseDict) {
+    public static void sendHeadPoseToUnity(HashMap<String, Float> headPoseDict) {
         if (callback == null) {
             Log.e(TAG, "Callback is null");
             return;
         }
-        callback.OnHeadPoseReceived(headPoseDict)  ;
+        callback.OnHeadPoseReceived(headPoseDict);
     }
 
 }

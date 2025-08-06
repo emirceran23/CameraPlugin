@@ -475,32 +475,29 @@ class MainActivity : AppCompatActivity() {
             var orientationMessage = ""
 
             // Orientation check with unified yaw
-            // Generate orientation correction messages
-            val warnings = mutableListOf<String>()
+            // Update arrow view with head pose data
             if(lastPitch==null|| lastYaw==null|| lastRoll==null) {
                 runOnUiThread {
                     binding.orientationTextView.text = "Yüz pozisyonu hesaplanıyor..."
                 }
                 return
             }
-            // Pitch
-            if      (lastPitch!! >  headPoseThreshold)  warnings.add("⬇ Başınızı biraz aşağı eğin.")
-            else if (lastPitch!! < -headPoseThreshold) warnings.add("⬆ Başınızı biraz yukarı kaldırın.")
 
-            // Yaw
-            if      (lastYaw!!   >  headPoseThreshold)  warnings.add("➡ Başınızı biraz sağa çevirin.")
-            else if (lastYaw!!   < -headPoseThreshold)  warnings.add("⬅ Başınızı biraz sola çevirin.")
-
-            // Roll
-            if      (lastRoll!!  >  headPoseThreshold)  warnings.add("↺ Başınızı saat yönünün tersine döndürün.")
-            else if (lastRoll!!  < -headPoseThreshold)  warnings.add("↻ Başınızı saat yönünde döndürün.")
-
-            if (isDistanceCheckEnabled && (distanceValue < 30.0 || distanceValue > 35.0)) {
-                warnings.add("📏 Kamera ile hasta arası mesafeyi 30-35 cm arasına getirin.")
+            // Update the arrow view with current head pose
+            runOnUiThread {
+                binding.headPoseArrowView.visibility = View.VISIBLE
+                binding.headPoseArrowView.updateHeadPose(lastPitch!!, lastYaw!!, lastRoll!!, headPoseThreshold)
             }
 
-            // ✅ Display warning messages or success message
-            if (warnings.isEmpty()) {
+            // Check if head pose is aligned
+            val isPoseAligned = kotlin.math.abs(lastPitch!!) <= headPoseThreshold && 
+                               kotlin.math.abs(lastYaw!!) <= headPoseThreshold && 
+                               kotlin.math.abs(lastRoll!!) <= headPoseThreshold
+
+            val isDistanceOk = !isDistanceCheckEnabled || (distanceValue >= 30.0 && distanceValue <= 35.0)
+
+            // ✅ Check if everything is aligned for auto-capture
+            if (isPoseAligned && isDistanceOk) {
                 orientationMessage = "✅ Baş pozisyonu uygun"
 
                 if (!isCapturing) {  // ✅ Prevent multiple captures
@@ -515,7 +512,12 @@ class MainActivity : AppCompatActivity() {
                     capturePhoto()  // ✅ Trigger vibration, then capture
                 }
             } else {
-                orientationMessage = warnings.joinToString("\n")
+                // Generate distance warning if needed
+                if (isDistanceCheckEnabled && (distanceValue < 30.0 || distanceValue > 35.0)) {
+                    orientationMessage = "📏 Kamera ile hasta arası mesafeyi 30-35 cm arasına getirin."
+                } else {
+                    orientationMessage = "🎯 Okları takip ederek başınızı hizalayın"
+                }
             }
 
             runOnUiThread {
@@ -531,6 +533,8 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 binding.orientationTextView.text = "Yüz algılanamadı"
                 binding.distanceTextView.text = "Mesafe ölçülemiyor"
+                // Hide arrow view when no face is detected
+                binding.headPoseArrowView.visibility = View.GONE
             }
         }
         
@@ -1103,25 +1107,22 @@ class MainActivity : AppCompatActivity() {
 
                     val poseWarnings = mutableListOf<String>()
 
-                    // Pitch
-                    if      (pitch >  headPoseThreshold)  poseWarnings.add("⬇ Başınızı biraz aşağı eğin.")
-                    else if (pitch < -headPoseThreshold) poseWarnings.add("⬆ Başınızı biraz yukarı kaldırın.")
+                    // Check head pose alignment using the same threshold logic
+                    val isPoseAligned = kotlin.math.abs(pitch) <= headPoseThreshold && 
+                                       kotlin.math.abs(yaw) <= headPoseThreshold && 
+                                       kotlin.math.abs(roll) <= headPoseThreshold
 
-// Yaw
-                    if      (yaw   >  headPoseThreshold)  poseWarnings.add("➡ Başınızı biraz sağa çevirin.")
-                    else if (yaw   < -headPoseThreshold)  poseWarnings.add("⬅ Başınızı biraz sola çevirin.")
-
-// Roll
-                    if      (roll  >  headPoseThreshold)  poseWarnings.add("↺ Başınızı saat yönünün tersine döndürün.")
-                    else if (roll  < -headPoseThreshold)  poseWarnings.add("↻ Başınızı saat yönünde döndürün.")
-
-
-                    if (poseWarnings.isNotEmpty()) {
-                        val fullMessage = "❌ Baş pozisyonu uygun değil:\n" + poseWarnings.joinToString("\n")
+                    if (!isPoseAligned) {
+                        // Build warning message for pose issues
+                        val poseIssues = mutableListOf<String>()
+                        if (kotlin.math.abs(pitch) > headPoseThreshold) poseIssues.add("pitch")
+                        if (kotlin.math.abs(yaw) > headPoseThreshold) poseIssues.add("yaw") 
+                        if (kotlin.math.abs(roll) > headPoseThreshold) poseIssues.add("roll")
+                        
+                        val fullMessage = "❌ Baş pozisyonu uygun değil (${poseIssues.joinToString(", ")}). Okları takip edin."
                         showErrorMessage(fullMessage)
                         playErrorSound()
                         Log.w(TAG, fullMessage)
-
 
                         return@addOnSuccessListener
                     }

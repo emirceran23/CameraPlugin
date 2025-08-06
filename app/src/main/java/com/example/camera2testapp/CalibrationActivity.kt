@@ -108,7 +108,7 @@ class CalibrationActivity : AppCompatActivity() {
 
 
         // Initialize calibrator (Adjust board size & square length as needed)
-        calibrator = CameraCalibration(9, 6, 20.0) // 9×6 inner corners, 25 mm squares
+        calibrator = CameraCalibration(9, 6, 25.0) // 9×6 inner corners, 25 mm squares
 
         overlayView = binding.overlayView
 
@@ -262,13 +262,9 @@ class CalibrationActivity : AppCompatActivity() {
     
                 runOnUiThread {
                     if (rms > 0) {
-                        if (CameraPlugin.callback != null) {
-                            CameraPlugin.callback.onCalibrationFinished(true); // ✅ success
-                        }
+                        CameraPlugin.callback?.OnCalibrationFinished(true) // ✅ success
                     } else {
-                        if (CameraPlugin.callback != null) {
-                            CameraPlugin.callback.onCalibrationFinished(false); // ❌ failed
-                        }
+                        CameraPlugin.callback?.OnCalibrationFinished(false) // ❌ failed
                     }
                     handleCalibrationResult(rms)
                     try { cameraProviderFuture.get().unbindAll() } catch (_: Exception) {}
