@@ -90,14 +90,21 @@ private var sensorOrientation = 0
 private var headPoseThreshold = 3f
 private var isDistanceCheckEnabled = true
 
+// Flash strategy enums and management
+enum class FlashStrategy {
+    STANDARD,           // Standard AE precapture
+    PRECAPTURE_SEQUENCE, // Samsung-style with timing
+    TORCH_THEN_FLASH,   // Xiaomi/Huawei/Vivo-style continuous torch
+    ADAPTIVE            // Try multiple approaches
+}
 
-
-
-
-
-
-
-
+data class FlashCapabilities(
+    val hasFlash: Boolean,
+    val supportsAlwaysFlash: Boolean,
+    val supportsTorch: Boolean,
+    val supportsAutoFlash: Boolean,
+    val supportsPrecapture: Boolean
+)
 
 class MainActivity : AppCompatActivity() {
     private val ORIENTATIONS = SparseIntArray()
@@ -134,6 +141,11 @@ class MainActivity : AppCompatActivity() {
     // Calibration flag and focal length (in mm, as read from EXIF)
     private var calibrationFocalLength: Float? = null
     private var isCalibrated = false
+    
+    // Flash management properties
+    private var flashCapabilities: FlashCapabilities? = null
+    private var preferredFlashStrategy: FlashStrategy = FlashStrategy.ADAPTIVE
+    private var flashTimingMs: Long = 500L
 
     companion object {
         private const val CAMERA_PERMISSION_CODE = 100
@@ -205,10 +217,31 @@ class MainActivity : AppCompatActivity() {
         binding.btnCapture.setOnClickListener {
             capturePhoto()
         }
+        
+        // Log device information for debugging
+        logDeviceFlashInfo()
     }
 
     /**
-     * Activity yön değişikliklerini dinle ve TextureView'e uygun dönüşümü uygula.
+     * Log device and flash information for debugging
+     */
+    private fun logDeviceFlashInfo() {
+        val manufacturer = Build.MANUFACTURER
+        val model = Build.MODEL
+        val device = Build.DEVICE
+        
+        Log.i(TAG, "=== DEVICE FLASH INFO ===")
+        Log.i(TAG, "Manufacturer: $manufacturer")
+        Log.i(TAG, "Model: $model")
+        Log.i(TAG, "Device: $device")
+        Log.i(TAG, "Expected flash strategy: ${getOptimalFlashStrategy()}")
+        Log.i(TAG, "Expected timing: ${getOptimalFlashTiming()}ms")
+        Log.i(TAG, "Needs torch warmup: ${needsTorchWarmup()}")
+        Log.i(TAG, "========================")
+    }
+
+    /**
+     * Activity yön değişikliklerini dinle ve TextureView'e uygun dönüşümü uygla.
      */
 
 
@@ -424,7 +457,7 @@ class MainActivity : AppCompatActivity() {
                 lastYaw = null
                 lastRoll = null
                 runOnUiThread {
-                    binding.mlkitPoseTextView.text = "Yüz algılama hatası"
+                    binding.mlkitPoseTextView.text = "Yüz algılanamadı"
                 }
                 isProcessing = false
             }
@@ -462,14 +495,22 @@ class MainActivity : AppCompatActivity() {
             val leftEye = landmarks.getOrNull(468)
             val rightEye = landmarks.getOrNull(473)
             if (leftEye != null && rightEye != null) {
-                val leftX = leftEye.x() * bitmap.width
-                val leftY = leftEye.y() * bitmap.height
-                val rightX = rightEye.x() * bitmap.width
-                val rightY = rightEye.y() * bitmap.height
+                // Convert normalized coordinates to TextureView pixel coordinates
+                val leftX = leftEye.x() * binding.textureView.width
+                val leftY = leftEye.y() * binding.textureView.height
+                val rightX = rightEye.x() * binding.textureView.width
+                val rightY = rightEye.y() * binding.textureView.height
                 val xCenter = ((leftX + rightX) / 2).toInt()
                 val yCenter = ((leftY + rightY) / 2).toInt()
-                lastEyeFocusX=xCenter
-                lastEyeFocusY=yCenter
+                
+                // Ensure coordinates are within TextureView bounds
+                val clampedX = clamp(xCenter, 0, binding.textureView.width - 1)
+                val clampedY = clamp(yCenter, 0, binding.textureView.height - 1)
+                
+                lastEyeFocusX = clampedX
+                lastEyeFocusY = clampedY
+                
+                Log.d(TAG, "Eye focus coordinates: TextureView($clampedX, $clampedY)")
             }
 
             var orientationMessage = ""
@@ -592,12 +633,20 @@ class MainActivity : AppCompatActivity() {
             when (mState) {
                 STATE_WAITING_PRECAPTURE -> {
                     val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                    Log.d(TAG, "AE State: $aeState")
+                    
                     // Kameranın precapture durumuna geçtiğini kontrol edin (örneğin, FLASH_REQUIRED veya CONVERGED)
                     if (aeState == CaptureResult.CONTROL_AE_STATE_PRECAPTURE ||
                         aeState == CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED ||
                         aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED) {
                         mState = STATE_WAITING_NON_PRECAPTURE
-                        captureStillPicture()  // AE hazır olduğunda final çekimi başlat
+                        
+                        // For Xiaomi devices, add shorter delay before actual capture
+                        val captureDelay = if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) 50L else 0L
+                        
+                        handler.postDelayed({
+                            captureStillPicture()  // AE hazır olduğunda final çekimi başlat
+                        }, captureDelay)
                     }
                 }
             }
@@ -605,33 +654,149 @@ class MainActivity : AppCompatActivity() {
     }
     private fun runPrecaptureSequence() {
         try {
-            // Xiaomi cihazlar ında bazı modeller pre-flash kullanmaz.
-            // Bu nedenle kısa süreli bir "torch" aydınlatması ekleyerek
-            // sensörün doğru pozlanmasını sağlıyoruz.
-            if (isXiaomiDevice()) {
-                // 1) Torch modunu aç
-                previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
-                cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder!!.build(), null, backgroundHandler)
+            // Initialize flash capabilities if not already done
+            if (flashCapabilities == null) {
+                flashCapabilities = detectFlashCapabilities()
+            }
+            
+            // Determine the optimal strategy
+            val strategy = getOptimalFlashStrategy()
+            val timing = getOptimalFlashTiming()
+            
+            Log.d(TAG, "Using flash strategy: $strategy with timing: ${timing}ms")
+            
+            when (strategy) {
+                FlashStrategy.TORCH_THEN_FLASH -> {
+                    executeTorchThenFlash(timing)
+                }
+                FlashStrategy.PRECAPTURE_SEQUENCE -> {
+                    executePrecaptureSequence(timing)
+                }
+                FlashStrategy.ADAPTIVE -> {
+                    executeAdaptiveFlash()
+                }
+                else -> {
+                    executeStandardFlash()
+                }
+            }
+        } catch (e: CameraAccessException) {
+            Log.e(TAG, "runPrecaptureSequence error: ${e.message}")
+            // Fallback to standard flash
+            executeStandardFlash()
+        }
+    }
 
-                // 2) Sensörün ortama uyum sağlaması için kısa bir bekleme ardından
-                //    standart AE precapture tetikleyicisini gönder
-                handler.postDelayed({
+    /**
+     * Execute torch warmup then flash (for Xiaomi, Huawei, Vivo, etc.)
+     */
+    private fun executeTorchThenFlash(warmupMs: Long) {
+        try {
+            Log.d(TAG, "Executing torch-then-flash sequence with ${warmupMs}ms warmup")
+            
+            // 1) Enable torch mode with reduced intensity for Xiaomi devices
+            previewRequestBuilder?.apply {
+                set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
+                
+                // For Xiaomi/Redmi devices, try to reduce AE compensation to prevent overexposure
+                if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                    // Reduce exposure compensation to prevent overexposure
+                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, -1)
+                    // Use spot metering for better face exposure
+                    set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+                    Log.d(TAG, "Applied Xiaomi/Redmi specific exposure settings")
+                }
+            }
+            
+            cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder!!.build(), null, backgroundHandler)
+
+            // 2) Wait for sensor adaptation, then trigger precapture with torch still on
+            handler.postDelayed({
+                // For Xiaomi devices, keep torch on and immediately trigger precapture
+                if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                    // Keep torch mode but trigger precapture immediately
                     previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
                         CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
                     mState = STATE_WAITING_PRECAPTURE
                     cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
-                }, 1200) // Bekleme süresi ihtiyaca göre artırılabilir
-            } else {
-                // AE_PRECAPTURE tetikleyicisini başlatın (standart yol)
-                previewRequestBuilder?.set(
-                    CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
-                    CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
-                )
-                mState = STATE_WAITING_PRECAPTURE
+                    Log.d(TAG, "Xiaomi: Triggered precapture with torch still on")
+                } else {
+                    // Standard approach for other devices
+                    previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                    mState = STATE_WAITING_PRECAPTURE
+                    cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+                }
+            }, warmupMs)
+        } catch (e: Exception) {
+            Log.e(TAG, "executeTorchThenFlash error: ${e.message}")
+            executeStandardFlash()
+        }
+    }
+
+    /**
+     * Execute precapture sequence with timing (for Samsung, OnePlus, etc.)
+     */
+    private fun executePrecaptureSequence(timingMs: Long) {
+        try {
+            Log.d(TAG, "Executing precapture sequence with ${timingMs}ms timing")
+            
+            // Quick precapture trigger
+            previewRequestBuilder?.set(
+                CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
+            )
+            mState = STATE_WAITING_PRECAPTURE
+            
+            // Add a small delay for better timing on these devices
+            handler.postDelayed({
                 cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+            }, timingMs / 5) // Use 1/5th of the timing for precapture delay
+        } catch (e: Exception) {
+            Log.e(TAG, "executePrecaptureSequence error: ${e.message}")
+            executeStandardFlash()
+        }
+    }
+
+    /**
+     * Execute adaptive flash (try standard first, fallback to torch)
+     */
+    private fun executeAdaptiveFlash() {
+        try {
+            Log.d(TAG, "Executing adaptive flash sequence")
+            
+            // Try standard approach first
+            executeStandardFlash { success ->
+                if (!success && needsTorchWarmup()) {
+                    Log.d(TAG, "Standard flash failed, trying torch warmup")
+                    // Fallback to torch method with moderate timing
+                    executeTorchThenFlash(800L)
+                }
             }
-        } catch (e: CameraAccessException) {
-            Log.e(TAG, "runPrecaptureSequence error: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "executeAdaptiveFlash error: ${e.message}")
+            executeStandardFlash()
+        }
+    }
+
+    /**
+     * Execute standard flash sequence
+     */
+    private fun executeStandardFlash(callback: ((Boolean) -> Unit)? = null) {
+        try {
+            Log.d(TAG, "Executing standard flash sequence")
+            
+            previewRequestBuilder?.set(
+                CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
+            )
+            mState = STATE_WAITING_PRECAPTURE
+            cameraCaptureSession?.capture(previewRequestBuilder!!.build(), captureCallback, backgroundHandler)
+            
+            // Assume success for standard flash
+            callback?.invoke(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "executeStandardFlash error: ${e.message}")
+            callback?.invoke(false)
         }
     }
 
@@ -639,6 +804,118 @@ class MainActivity : AppCompatActivity() {
     private fun isXiaomiDevice(): Boolean {
         Log.d("XiaomiCheck", "Manufacturer: ${Build.MANUFACTURER}")
         return Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
+    }
+
+    /**
+     * Detect flash capabilities of the current device
+     */
+    private fun detectFlashCapabilities(): FlashCapabilities {
+        return try {
+            val characteristics = getCameraCharacteristics() ?: return FlashCapabilities(
+                hasFlash = false,
+                supportsAlwaysFlash = false,
+                supportsTorch = false,
+                supportsAutoFlash = false,
+                supportsPrecapture = false
+            )
+            
+            val flashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) ?: false
+            val aeAvailableModes = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES) ?: intArrayOf()
+            val supportedModes = characteristics.get(CameraCharacteristics.CONTROL_AVAILABLE_MODES) ?: intArrayOf()
+            
+            FlashCapabilities(
+                hasFlash = flashAvailable,
+                supportsAlwaysFlash = aeAvailableModes.contains(CaptureRequest.CONTROL_AE_MODE_ON_ALWAYS_FLASH),
+                supportsTorch = flashAvailable, // Most devices with flash support torch
+                supportsAutoFlash = aeAvailableModes.contains(CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH),
+                supportsPrecapture = supportedModes.contains(CameraCharacteristics.CONTROL_MODE_AUTO)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error detecting flash capabilities: ${e.message}")
+            FlashCapabilities(false, false, false, false, false)
+        }
+    }
+
+    /**
+     * Get camera characteristics for the current device
+     */
+    private fun getCameraCharacteristics(): CameraCharacteristics? {
+        return try {
+            val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+            val cameraId = cameraDevice?.id ?: return null
+            cameraManager.getCameraCharacteristics(cameraId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting camera characteristics: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Determine the optimal flash strategy based on device manufacturer and capabilities
+     */
+    private fun getOptimalFlashStrategy(): FlashStrategy {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        val capabilities = flashCapabilities ?: detectFlashCapabilities()
+        
+        // If no flash available, return standard
+        if (!capabilities.hasFlash) {
+            Log.d(TAG, "No flash available, using STANDARD strategy")
+            return FlashStrategy.STANDARD
+        }
+        
+        return when (manufacturer) {
+            "samsung" -> {
+                Log.d(TAG, "Samsung device detected, using PRECAPTURE_SEQUENCE strategy")
+                FlashStrategy.PRECAPTURE_SEQUENCE
+            }
+            "xiaomi", "redmi", "huawei", "vivo" -> {
+                Log.d(TAG, "$manufacturer device detected, using TORCH_THEN_FLASH strategy")
+                FlashStrategy.TORCH_THEN_FLASH
+            }
+            "oneplus" -> {
+                Log.d(TAG, "OnePlus device detected, using PRECAPTURE_SEQUENCE strategy")
+                FlashStrategy.PRECAPTURE_SEQUENCE
+            }
+            "google", "pixel" -> {
+                Log.d(TAG, "Google/Pixel device detected, using STANDARD strategy")
+                FlashStrategy.STANDARD
+            }
+            "lg", "sony", "motorola" -> {
+                Log.d(TAG, "$manufacturer device detected, using PRECAPTURE_SEQUENCE strategy")
+                FlashStrategy.PRECAPTURE_SEQUENCE
+            }
+            else -> {
+                Log.d(TAG, "Unknown manufacturer ($manufacturer), using ADAPTIVE strategy")
+                FlashStrategy.ADAPTIVE
+            }
+        }
+    }
+
+    /**
+     * Get optimal flash timing based on device manufacturer
+     */
+    private fun getOptimalFlashTiming(): Long {
+        return when (Build.MANUFACTURER.lowercase()) {
+            "samsung" -> 250L        // Quick precapture
+            "xiaomi" -> 1200L        // Reduced from 1500L - balance between warmup and timing
+            "redmi" -> 1200L         // Redmi (Xiaomi sub-brand) needs same timing
+            "huawei" -> 1000L        // Medium torch warmup
+            "vivo" -> 1100L          // Vivo needs similar timing to Xiaomi
+            "oneplus" -> 200L        // Very quick
+            "google", "pixel" -> 150L // Pixel phones are fast
+            "lg" -> 350L             // LG needs more time
+            "sony" -> 300L           // Sony moderate timing
+            "motorola" -> 400L       // Motorola moderate timing
+            else -> 500L             // Safe default
+        }
+    }
+
+    /**
+     * Check if device needs torch warmup before flash
+     */
+    private fun needsTorchWarmup(): Boolean {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        return manufacturer in listOf("xiaomi", "redmi", "huawei", "vivo", "oppo", "realme")
     }
 
     private fun estimateDistanceUsingIris(
@@ -806,6 +1083,16 @@ class MainActivity : AppCompatActivity() {
             manager.openCamera(backCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     cameraDevice = camera
+                    
+                    // Initialize flash capabilities early
+                    flashCapabilities = detectFlashCapabilities()
+                    preferredFlashStrategy = getOptimalFlashStrategy()
+                    flashTimingMs = getOptimalFlashTiming()
+                    
+                    Log.d(TAG, "Flash capabilities: $flashCapabilities")
+                    Log.d(TAG, "Preferred flash strategy: $preferredFlashStrategy")
+                    Log.d(TAG, "Flash timing: ${flashTimingMs}ms")
+                    
                     startCameraPreview()
 
                     // Grab sensor physical width (mm) once the back camera is chosen.
@@ -911,29 +1198,62 @@ class MainActivity : AppCompatActivity() {
         try {
             if (cameraDevice == null) return
 
-            // 1) preview repeating isteğini durdur
+            // 1) Stop preview repeating request
             cameraCaptureSession?.stopRepeating()
 
             val captureBuilder = cameraDevice!!.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader!!.surface)
                 set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation())
 
-                // Eğer flash donanımı varsa, capture sırasında flash'ı zorunlu çalıştırıyoruz.
-                val characteristics = (getSystemService(CAMERA_SERVICE) as CameraManager)
-                    .getCameraCharacteristics(cameraDevice!!.id)
-                val isFlashAvailable = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-                if (isFlashAvailable) {
-                    set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
-                    set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                // Enhanced flash logic based on device capabilities
+                val capabilities = flashCapabilities ?: detectFlashCapabilities()
+                if (capabilities.hasFlash) {
+                    when (preferredFlashStrategy) {
+                        FlashStrategy.TORCH_THEN_FLASH -> {
+                            // For Xiaomi, Redmi, Huawei, Vivo - use controlled flash mode
+                            if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                                // Xiaomi/Redmi specific settings - use torch mode for capture
+                                set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+                                set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
+                                // Keep reduced exposure compensation for final capture
+                                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, -2) // Further reduce for capture
+                                // Use center-weighted metering for better face exposure
+                                set(CaptureRequest.CONTROL_AE_REGIONS, null) // Reset regions for global metering
+                                Log.d(TAG, "Applied Xiaomi/Redmi capture settings with torch mode")
+                            } else {
+                                // Other torch-then-flash devices
+                                set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
+                                set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                            }
+                        }
+                        FlashStrategy.PRECAPTURE_SEQUENCE -> {
+                            // For Samsung, OnePlus - use auto flash with precapture
+                            set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH)
+                            set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                        }
+                        else -> {
+                            // Standard approach
+                            set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
+                            set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                        }
+                    }
+                    
                     set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
                     set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
-                    Log.d(TAG, "Capture için flash parametreleri ayarlandı")
+                    Log.d(TAG, "Flash parameters configured for strategy: $preferredFlashStrategy")
                 }
             }
 
             mState = STATE_PICTURE_TAKEN
 
-            // 2) Kısa bir gecikme vererek capture isteğini gönderiyoruz.
+            // Add device-specific delay before capture
+            val captureDelay = when (Build.MANUFACTURER.lowercase()) {
+                "xiaomi", "redmi" -> 150L    // Reduced delay for better flash timing
+                "huawei", "vivo" -> 200L
+                "samsung", "oneplus" -> 100L
+                else -> 150L
+            }
+
             Handler(Looper.getMainLooper()).postDelayed({
                 cameraCaptureSession?.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
                     override fun onCaptureCompleted(
@@ -941,16 +1261,23 @@ class MainActivity : AppCompatActivity() {
                         request: CaptureRequest,
                         result: TotalCaptureResult
                     ) {
-                        Log.d(TAG, "Fotoğraf çekildi")
+                        Log.d(TAG, "Photo captured successfully")
                         mState = STATE_PREVIEW
 
-                        // Tekrar preview'e dönüyoruz -> orada updateFlashMode() tetiklenecek
+                        // For Xiaomi devices, turn off torch after capture
+                        if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                            previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
+                            previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+                            Log.d(TAG, "Turned off torch after Xiaomi capture")
+                        }
+
+                        // Return to preview with updated flash mode
                         startCameraPreview()
                     }
                 }, backgroundHandler)
-            }, 150)
+            }, captureDelay)
         } catch (e: CameraAccessException) {
-            Log.e(TAG, "captureStillPicture hatası: ${e.message}")
+            Log.e(TAG, "captureStillPicture error: ${e.message}")
         }
     }
 
@@ -972,10 +1299,17 @@ class MainActivity : AppCompatActivity() {
             if (x != null && y != null) {
                 Log.d(TAG, "capturePhoto: focusing on eyes at ($x, $y)")
                 setFocusOnEyesOrFace(x, y, 300)
-                // Kısa bir bekleme (ör. 300ms) vererek AF oturmasını sağlayın, sonra precapture
+                
+                // Xiaomi devices need more time for manual focus to settle
+                val focusDelay = if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                    1200L  // Increased delay for manual focus to settle
+                } else {
+                    300L   // Standard delay for other devices
+                }
+                
                 handler.postDelayed({
                     runPrecaptureSequence()
-                }, 300)
+                }, focusDelay)
             } else {
                 // Göz koordinatı yoksa direkt precapture
                 runPrecaptureSequence()
@@ -1020,56 +1354,144 @@ class MainActivity : AppCompatActivity() {
         }
     }
     fun setFocusOnEyesOrFace(xCenter: Int, yCenter: Int, regionSize: Int = 200) {
-
         val localSession = cameraCaptureSession
         if (localSession == null) {
             Log.w(TAG, "Cannot set focus: cameraCaptureSession is null or closed.")
             return
         }
 
-        // 2) cameraDevice hala açık mı?
         if (cameraDevice == null) {
             Log.w(TAG, "Cannot set focus: cameraDevice is null.")
             return
         }
-        val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
-        val characteristics = cameraManager.getCameraCharacteristics(cameraDevice?.id ?: return)
-        val sensorArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
 
-        // Koordinatları sınırlar içinde tut
-        val halfSize = regionSize / 2
-        val left = clamp(xCenter - halfSize, 0, sensorArraySize.width() - 1)
-        val top = clamp(yCenter - halfSize, 0, sensorArraySize.height() - 1)
-        val right = clamp(left + regionSize, 0, sensorArraySize.width())
-        val bottom = clamp(top + regionSize, 0, sensorArraySize.height())
+        try {
+            val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+            val characteristics = cameraManager.getCameraCharacteristics(cameraDevice?.id ?: return)
+            val sensorArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return
+            
+            // Convert TextureView coordinates to sensor coordinates
+            val textureWidth = binding.textureView.width
+            val textureHeight = binding.textureView.height
+            
+            if (textureWidth == 0 || textureHeight == 0) {
+                Log.w(TAG, "TextureView dimensions are zero, cannot set focus")
+                return
+            }
+            
+            // Map from TextureView coordinates to sensor coordinates
+            val sensorX = (xCenter.toFloat() / textureWidth * sensorArraySize.width()).toInt()
+            val sensorY = (yCenter.toFloat() / textureHeight * sensorArraySize.height()).toInt()
+            
+            // Create focus region with bounds checking
+            val halfSize = regionSize / 2
+            val left = clamp(sensorX - halfSize, 0, sensorArraySize.width() - 1)
+            val top = clamp(sensorY - halfSize, 0, sensorArraySize.height() - 1)
+            val right = clamp(left + regionSize, left + 1, sensorArraySize.width())
+            val bottom = clamp(top + regionSize, top + 1, sensorArraySize.height())
 
-        val meteringRect = MeteringRectangle(android.graphics.Rect(left, top, right, bottom), MeteringRectangle.METERING_WEIGHT_MAX)
+            val meteringRect = MeteringRectangle(
+                android.graphics.Rect(left, top, right, bottom), 
+                MeteringRectangle.METERING_WEIGHT_MAX
+            )
 
-        // Builder'dan AF modunu ve AF bölgesini ayarlayalım:
-        previewRequestBuilder?.apply {
-            // Sürekli netlik modu
-            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            Log.d(TAG, "Focus region: TextureView($xCenter, $yCenter) -> Sensor($sensorX, $sensorY) -> Rect($left, $top, $right, $bottom)")
 
-            // AF ve AE bölgeleri (opsiyonel, AE de yüz merkezine ayarlamak isterseniz)
-            set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRect))
-            set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRect))
-            lastEyeFocusX = xCenter
-            lastEyeFocusY = yCenter
-            // AF tetikle
-           // set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
-        }
+            // Get lens info for manual focus distance calculation
+            val minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+            val hyperfocalDistance = characteristics.get(CameraCharacteristics.LENS_INFO_HYPERFOCAL_DISTANCE) ?: 0f
+            
+            Log.d(TAG, "Lens info - Min focus distance: $minFocusDistance, Hyperfocal: $hyperfocalDistance")
 
-        // Tek seferlik bir capture isteği göndererek AF'yi başlatalım
+            // Calculate manual focus distance from eye distance
+            var focusDistance = 0f
+            val eyeDistanceCm = finalDistanceValue
+            
+            if (eyeDistanceCm != null && eyeDistanceCm > 0f && minFocusDistance > 0f) {
+                // Convert distance from cm to meters
+                val eyeDistanceM = eyeDistanceCm / 100f
+                
+                // Calculate focus distance in diopters (1/meters)
+                // Camera2 API uses diopters where 0 = infinity, higher values = closer
+                focusDistance = 1f / eyeDistanceM
+                
+                // Clamp to camera's capabilities
+                focusDistance = focusDistance.coerceAtMost(minFocusDistance)
+                
+                Log.d(TAG, "Calculated focus distance: ${eyeDistanceCm}cm -> ${eyeDistanceM}m -> ${focusDistance} diopters (max: $minFocusDistance)")
+            }
+
+            // Xiaomi-specific focus settings with manual distance
+            previewRequestBuilder?.apply {
+                if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi", "vivo")) {
+                    if (focusDistance > 0f && minFocusDistance > 0f) {
+                        // Use manual focus with calculated distance
+                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                        set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                        Log.d(TAG, "${Build.MANUFACTURER}: Applied manual focus distance: $focusDistance diopters")
+                    } else {
+                        // Fallback to auto focus
+                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+                    }
+                    
+                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                    set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRect))
+                    set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRect))
+                } else {
+                    // For other devices, use continuous picture mode with regions
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                    set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRect))
+                    set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRect))
+                    
+                    // If we have distance info, provide a hint
+                    if (focusDistance > 0f && minFocusDistance > 0f) {
+                        // Some devices support focus distance hints even in auto mode
+                        set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                        Log.d(TAG, "Other device: Applied focus distance hint: $focusDistance diopters")
+                    }
+                }
+
+                // Trigger autofocus only for non-manual modes
+                if (get(CaptureRequest.CONTROL_AF_MODE) != CaptureRequest.CONTROL_AF_MODE_OFF) {
+                    set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+                }
+            }
+
+        // Capture the focus request
         cameraCaptureSession?.capture(
             previewRequestBuilder!!.build(),
-            null,
-            handler
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    val afState = result.get(CaptureResult.CONTROL_AF_STATE)
+                    val currentFocusDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    Log.d(TAG, "Focus completed - AF state: $afState, Actual focus distance: $currentFocusDistance diopters")
+                    
+                    // Reset AF trigger for auto modes and resume preview
+                    if (previewRequestBuilder?.get(CaptureRequest.CONTROL_AF_MODE) != CaptureRequest.CONTROL_AF_MODE_OFF) {
+                        previewRequestBuilder?.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+                    }
+                    
+                    try {
+                        cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder!!.build(), null, backgroundHandler)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error resuming preview after focus: ${e.message}")
+                    }
+                }
+            },
+            backgroundHandler
         )
 
-        // Sonrasında da preview isteğini tekrar setRepeatingRequest ile döndürebilirsiniz.
-        cameraCaptureSession?.setRepeatingRequest(previewRequestBuilder!!.build(), null, null)
+        lastEyeFocusX = xCenter
+        lastEyeFocusY = yCenter
+        
+    } catch (e: Exception) {
+        Log.e(TAG, "Error setting focus: ${e.message}")
     }
-
+    }
     private fun saveImageToGallery(image: Image, distanceValue: Float?) {
         try {
             val buffer = image.planes[0].buffer
@@ -1192,7 +1614,7 @@ class MainActivity : AppCompatActivity() {
                 .addOnFailureListener { e ->
                     Log.e(TAG, "Face detection failed: ${e.message}")
                     playErrorSound()
-                    showErrorMessage("❌ Yüz algılama hatası oluştu.")
+                    showErrorMessage("❌ Yüz algılanamadı.")
                 }
         } catch (e: Exception) {
             Log.e(TAG, "Error saving photo: ${e.message}")
@@ -1205,7 +1627,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateFlashMode() {
         previewRequestBuilder?.apply {
-// Klasik otomatik modları aktif ediyoruz
+            // Klasik otomatik modları aktif ediyoruz
             set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
 
             // Sürekli flaş:
@@ -1221,9 +1643,12 @@ class MainActivity : AppCompatActivity() {
             set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_FAST)
 
             set(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_OFF)
-
-
-
+            
+            // Reset exposure compensation for preview (especially for Xiaomi/Redmi)
+            if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+                Log.d(TAG, "Reset exposure compensation for preview")
+            }
         }
 
         try {
