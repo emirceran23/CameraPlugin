@@ -77,9 +77,11 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.0")
     implementation("androidx.camera:camera-view:1.3.0")
 
-    // EXIF Metadata Handling
+        // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
-    implementation ("com.quickbirdstudios:opencv:4.5.3.0")
+    
+    // OpenCV - Updated to 4.12.0 to fix 16KB memory page error
+    implementation("org.opencv:opencv:4.12.0")
 
 
 

@@ -90,6 +90,9 @@ private var sensorOrientation = 0
 private var headPoseThreshold = 3f
 private var isDistanceCheckEnabled = true
 
+// VIVO V21 ONLY - Store last metering rectangle for capture reuse
+private var lastMeteringRect: MeteringRectangle? = null
+
 // Flash strategy enums and management
 enum class FlashStrategy {
     STANDARD,           // Standard AE precapture
@@ -690,6 +693,13 @@ class MainActivity : AppCompatActivity() {
      * Execute torch warmup then flash (for Xiaomi, Huawei, Vivo, etc.)
      */
     private fun executeTorchThenFlash(warmupMs: Long) {
+        // VIVO V21 ONLY - Skip torch warmup, use precapture instead
+        if (isVivoV21()) {
+            Log.d(TAG, "Vivo V21: Skipping torch-then-flash, using precapture sequence")
+            executePrecaptureSequence(250L)
+            return
+        }
+        
         try {
             Log.d(TAG, "Executing torch-then-flash sequence with ${warmupMs}ms warmup")
             
@@ -806,6 +816,32 @@ class MainActivity : AppCompatActivity() {
         return Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
     }
 
+    // VIVO V21 ONLY - Detect Vivo V21 specifically for flash fix
+    private fun isVivoV21(): Boolean {
+        val manufacturer = Build.MANUFACTURER.equals("vivo", ignoreCase = true)
+        val model = Build.MODEL?.contains("V21", ignoreCase = true) == true
+        val isV21 = manufacturer && model
+        if (isV21) {
+            Log.d(TAG, "VIVO V21 detected - using special flash handling")
+        }
+        return isV21
+    }
+
+    // VIVO V21 ONLY - Create centered metering rectangle for fallback
+    private fun getCenteredMeteringRect(sensorArraySize: android.graphics.Rect, fraction: Float = 0.22f): android.graphics.Rect {
+        val centerX = sensorArraySize.centerX()
+        val centerY = sensorArraySize.centerY()
+        val halfWidth = (sensorArraySize.width() * fraction / 2).toInt()
+        val halfHeight = (sensorArraySize.height() * fraction / 2).toInt()
+        
+        return android.graphics.Rect(
+            centerX - halfWidth,
+            centerY - halfHeight,
+            centerX + halfWidth,
+            centerY + halfHeight
+        )
+    }
+
     /**
      * Detect flash capabilities of the current device
      */
@@ -863,6 +899,12 @@ class MainActivity : AppCompatActivity() {
             return FlashStrategy.STANDARD
         }
         
+        // VIVO V21 ONLY - Force PRECAPTURE_SEQUENCE to avoid torch warmup
+        if (isVivoV21()) {
+            Log.d(TAG, "Vivo V21 detected, using PRECAPTURE_SEQUENCE strategy (no torch)")
+            return FlashStrategy.PRECAPTURE_SEQUENCE
+        }
+        
         return when (manufacturer) {
             "samsung" -> {
                 Log.d(TAG, "Samsung device detected, using PRECAPTURE_SEQUENCE strategy")
@@ -915,6 +957,13 @@ class MainActivity : AppCompatActivity() {
      */
     private fun needsTorchWarmup(): Boolean {
         val manufacturer = Build.MANUFACTURER.lowercase()
+        
+        // VIVO V21 ONLY - Disable torch warmup to prevent overexposure
+        if (isVivoV21()) {
+            Log.d(TAG, "Vivo V21: torch warmup disabled")
+            return false
+        }
+        
         return manufacturer in listOf("xiaomi", "redmi", "huawei", "vivo", "oppo", "realme")
     }
 
@@ -1205,52 +1254,87 @@ class MainActivity : AppCompatActivity() {
                 addTarget(imageReader!!.surface)
                 set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation())
 
-                // Enhanced flash logic based on device capabilities
-                val capabilities = flashCapabilities ?: detectFlashCapabilities()
-                if (capabilities.hasFlash) {
-                    when (preferredFlashStrategy) {
-                        FlashStrategy.TORCH_THEN_FLASH -> {
-                            // For Xiaomi, Redmi, Huawei, Vivo - use controlled flash mode
-                            if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
-                                // Xiaomi/Redmi specific settings - use torch mode for capture
-                                set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
-                                set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
-                                // Keep reduced exposure compensation for final capture
-                                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, -2) // Further reduce for capture
-                                // Use center-weighted metering for better face exposure
-                                set(CaptureRequest.CONTROL_AE_REGIONS, null) // Reset regions for global metering
-                                Log.d(TAG, "Applied Xiaomi/Redmi capture settings with torch mode")
-                            } else {
-                                // Other torch-then-flash devices
+                // VIVO V21 ONLY - Special flash handling to prevent overexposure
+                if (isVivoV21()) {
+                    Log.d(TAG, "Vivo V21: Applying special flash settings")
+                    
+                    // Ensure torch is OFF and use clean flash settings
+                    set(CaptureRequest.CONTROL_AE_LOCK, false)
+                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+                    set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                    set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH)
+                    
+                    // Ensure torch is turned off in preview
+                    previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
+                    
+                    // Copy AE/AF regions from preview to capture
+                    lastMeteringRect?.let { meteringRect ->
+                        set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRect))
+                        set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRect))
+                        Log.d(TAG, "Vivo V21: Applied stored metering regions to capture")
+                    } ?: run {
+                        // Fallback: use centered metering rectangle
+                        val characteristics = getCameraCharacteristics()
+                        if (characteristics != null) {
+                            val sensorArraySize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                            if (sensorArraySize != null) {
+                                val centeredRect = getCenteredMeteringRect(sensorArraySize, 0.22f)
+                                val meteringRect = MeteringRectangle(centeredRect, MeteringRectangle.METERING_WEIGHT_MAX)
+                                set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRect))
+                                set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRect))
+                                Log.d(TAG, "Vivo V21: Applied fallback centered metering regions")
+                            }
+                        }
+                    }
+                } else {
+                    // Enhanced flash logic based on device capabilities for other devices
+                    val capabilities = flashCapabilities ?: detectFlashCapabilities()
+                    if (capabilities.hasFlash) {
+                        when (preferredFlashStrategy) {
+                            FlashStrategy.TORCH_THEN_FLASH -> {
+                                // For Xiaomi, Redmi, Huawei, Vivo - use controlled flash mode
+                                if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                                    // Xiaomi/Redmi specific settings - use torch mode for capture
+                                    set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+                                    set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH)
+                                    // Keep reduced exposure compensation for final capture
+                                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, -2) // Further reduce for capture
+                                    // Use center-weighted metering for better face exposure
+                                    set(CaptureRequest.CONTROL_AE_REGIONS, null) // Reset regions for global metering
+                                    Log.d(TAG, "Applied Xiaomi/Redmi capture settings with torch mode")
+                                } else {
+                                    // Other torch-then-flash devices
+                                    set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
+                                    set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                                }
+                            }
+                            FlashStrategy.PRECAPTURE_SEQUENCE -> {
+                                // For Samsung, OnePlus - use auto flash with precapture
+                                set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH)
+                                set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
+                            }
+                            else -> {
+                                // Standard approach
                                 set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
                                 set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
                             }
                         }
-                        FlashStrategy.PRECAPTURE_SEQUENCE -> {
-                            // For Samsung, OnePlus - use auto flash with precapture
-                            set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH)
-                            set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
-                        }
-                        else -> {
-                            // Standard approach
-                            set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH)
-                            set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_SINGLE)
-                        }
+                        
+                        set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+                        set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                        Log.d(TAG, "Flash parameters configured for strategy: $preferredFlashStrategy")
                     }
-                    
-                    set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
-                    set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
-                    Log.d(TAG, "Flash parameters configured for strategy: $preferredFlashStrategy")
                 }
             }
 
             mState = STATE_PICTURE_TAKEN
 
             // Add device-specific delay before capture
-            val captureDelay = when (Build.MANUFACTURER.lowercase()) {
-                "xiaomi", "redmi" -> 150L    // Reduced delay for better flash timing
-                "huawei", "vivo" -> 200L
-                "samsung", "oneplus" -> 100L
+            val captureDelay = when {
+                isVivoV21() -> 250L          // VIVO V21 ONLY - Short delay for precapture sequence
+                Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi") -> 150L
+                Build.MANUFACTURER.lowercase() in listOf("huawei", "vivo") -> 200L
+                Build.MANUFACTURER.lowercase() in listOf("samsung", "oneplus") -> 100L
                 else -> 150L
             }
 
@@ -1264,8 +1348,15 @@ class MainActivity : AppCompatActivity() {
                         Log.d(TAG, "Photo captured successfully")
                         mState = STATE_PREVIEW
 
+                        // VIVO V21 ONLY - Ensure torch stays off after capture
+                        if (isVivoV21()) {
+                            previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
+                            previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+                            previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_LOCK, false)
+                            Log.d(TAG, "Vivo V21: Ensured clean flash state after capture")
+                        }
                         // For Xiaomi devices, turn off torch after capture
-                        if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
+                        else if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
                             previewRequestBuilder?.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
                             previewRequestBuilder?.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
                             Log.d(TAG, "Turned off torch after Xiaomi capture")
@@ -1300,11 +1391,11 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "capturePhoto: focusing on eyes at ($x, $y)")
                 setFocusOnEyesOrFace(x, y, 300)
                 
-                // Xiaomi devices need more time for manual focus to settle
-                val focusDelay = if (Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi")) {
-                    1200L  // Increased delay for manual focus to settle
-                } else {
-                    300L   // Standard delay for other devices
+                // VIVO V21 ONLY - Shorter focus delay for better flash timing
+                val focusDelay = when {
+                    isVivoV21() -> 400L  // VIVO V21 ONLY - Balanced delay for focus + flash
+                    Build.MANUFACTURER.lowercase() in listOf("xiaomi", "redmi") -> 1200L
+                    else -> 300L
                 }
                 
                 handler.postDelayed({
@@ -1395,7 +1486,12 @@ class MainActivity : AppCompatActivity() {
                 MeteringRectangle.METERING_WEIGHT_MAX
             )
 
+            // VIVO V21 ONLY - Store metering rectangle for capture reuse
+            lastMeteringRect = meteringRect
             Log.d(TAG, "Focus region: TextureView($xCenter, $yCenter) -> Sensor($sensorX, $sensorY) -> Rect($left, $top, $right, $bottom)")
+            if (isVivoV21()) {
+                Log.d(TAG, "Vivo V21: Stored metering rectangle for capture reuse")
+            }
 
             // Get lens info for manual focus distance calculation
             val minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
