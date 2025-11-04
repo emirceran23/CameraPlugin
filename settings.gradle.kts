@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Camera2TestApp"
 include(":app")
+include(":openCVLibrary412")

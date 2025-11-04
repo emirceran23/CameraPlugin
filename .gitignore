@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# OpenCV build artifacts
+opencv_build/
+opencv_sdk/
+openCVLibrary412
+

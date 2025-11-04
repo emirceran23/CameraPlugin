@@ -15,6 +15,20 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
+        
+        // Specify NDK version for 16KB alignment
+        ndkVersion = "28.0.12433566"
+        
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_PLATFORM=android-30"
+
+                )
+            }
+        }
     }
 
     buildFeatures {
@@ -23,17 +37,29 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "21"
+        jvmTarget = "17"
     }
 
     // Corrected JNI libs location
     sourceSets.getByName("main") {
         jniLibs.srcDirs("src/main/jniLibs")
+    }
+    
+    // Configure packaging options for native libraries
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+            // Keep all architectures
+            pickFirsts += listOf(
+                "lib/arm64-v8a/libc++_shared.so",
+                "lib/armeabi-v7a/libc++_shared.so"
+            )
+        }
     }
 
 
@@ -51,8 +77,8 @@ android {
 
 dependencies {
     implementation("androidx.databinding:viewbinding:4.1.3")
-    implementation("com.google.mediapipe:tasks-vision:0.10.20")
-    implementation("com.google.mediapipe:tasks-core:0.10.20")
+    implementation("com.google.mediapipe:tasks-vision:0.10.29")
+    implementation("com.google.mediapipe:tasks-core:0.10.29")
     implementation ("com.google.mlkit:face-detection:16.1.7")
     //implementation ("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
 
@@ -80,8 +106,10 @@ dependencies {
         // EXIF Metadata Handling
     implementation("androidx.exifinterface:exifinterface:1.3.6")
     
-    // OpenCV - Updated to 4.12.0 to fix 16KB memory page error
-    implementation("org.opencv:opencv:4.12.0")
+    // OpenCV - Built from source with NDK r28+ for 16KB alignment
+    // Remove the stock AAR dependency:
+    // implementation("org.opencv:opencv:4.12.0")
+    // Instead, we'll use the custom-built native libraries
 
 
 
@@ -90,6 +118,7 @@ dependencies {
     // Testing
     implementation(libs.androidx.junit.ktx)
     implementation(libs.androidx.monitor)
+    implementation(project(":openCVLibrary412"))
     androidTestImplementation(libs.junit.junit)
 }
 
