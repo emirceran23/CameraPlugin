@@ -18,10 +18,11 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintDimensionRatio="3:4">
 
-        <TextureView
-            android:id="@+id/textureView"
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"/>
+            android:layout_height="match_parent" />
+
 
         <com.example.camera2testapp.CameraGridView
             android:id="@+id/gridView"
