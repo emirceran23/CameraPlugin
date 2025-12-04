@@ -123,10 +123,6 @@ class CalibrationActivity : AppCompatActivity() {
             )
         }
 
-        binding.btnFinish.setOnClickListener {
-            finishCalibration()
-        }
-
         // Obtain focal length once (requires camera permission granted)
         focalLengthMm = try {
             getBackCameraFocalLengthMm()
@@ -137,9 +133,10 @@ class CalibrationActivity : AppCompatActivity() {
 
     }
 
+
     private fun updateStatus() {
         runOnUiThread {
-            binding.statusTextView.text = "Frames: $successfulFrames / $totalFrames"
+            binding.statusTextView.text = "$successfulFrames/$REQUIRED_FRAMES"
         }
     }
 

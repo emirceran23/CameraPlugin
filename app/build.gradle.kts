@@ -127,13 +127,13 @@ afterEvaluate {
     tasks.named("assembleDebug").configure {
         doLast {
             val aarFile = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\Camera2TestApp\\app\\build\\outputs\\aar\\app-debug.aar")
-            val targetDir = file("C:\\Users\\ITEMS\\Desktop\\eye-rehab-master\\Assets\\Plugins\\Android")
+            val targetDir = file("C:\\Users\\ITEMS\\AndroidStudioProjects\\testApp\\app\\libs")
 
             if (aarFile.exists()) {
                 copy {
                     from(aarFile)
                     into(targetDir)
-                    rename { "Camera2Plugin.aar" }
+                    rename { "app-debug.aar" }
                 }
                 println("✅ AAR copied to target project at: $targetDir")
             } else {

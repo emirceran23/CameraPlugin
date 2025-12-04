@@ -15,7 +15,7 @@ data class CameraXConfig(
     val cameraSelector: CameraSelector = CameraSelector.DEFAULT_BACK_CAMERA,
     val resolutionSelector: ResolutionSelector? = null,
     val imageCaptureMode: Int = ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY,
-    val flashMode: Int = ImageCapture.FLASH_MODE_AUTO,
+    val flashMode: Int = ImageCapture.FLASH_MODE_ON,
     val imageAnalysisStrategy: Int = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
 ) {
     companion object {

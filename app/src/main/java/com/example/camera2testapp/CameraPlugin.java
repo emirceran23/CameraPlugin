@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
+import android.graphics.Matrix;
 
 public class CameraPlugin {
 
@@ -51,6 +52,14 @@ public class CameraPlugin {
             unityActivity.startActivity(intent);
         }
     }
+
+    public static Bitmap rotateBitmap(Bitmap source, float angle) {
+        Matrix matrix = new Matrix();
+        matrix.postRotate(angle);
+        return Bitmap.createBitmap(
+                source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
+    }
+
     public static void sendResultToUnity(Bitmap bitmap) {
         if (callback == null) {
             Log.e(TAG, "Callback is null");
@@ -58,6 +67,7 @@ public class CameraPlugin {
         }
 
         try {
+            bitmap = rotateBitmap(bitmap, -90f);
             ByteArrayOutputStream stream = new ByteArrayOutputStream();
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
             byte[] imageBytes = stream.toByteArray();
@@ -79,6 +89,7 @@ public class CameraPlugin {
             Log.e(TAG, "Failed to send image: " + e.getMessage());
         }
     }
+
     public static void sendHeadPoseToUnity(HashMap<String, Float> headPoseDict) {
         if (callback == null) {
             Log.e(TAG, "Callback is null");
